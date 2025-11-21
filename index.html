@@ -44,6 +44,30 @@
             font-size: 1.05em;
         }
 
+        .sync-status {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            margin-left: 10px;
+            font-weight: 600;
+        }
+
+        .sync-status.synced {
+            background: #27AE60;
+            color: white;
+        }
+
+        .sync-status.syncing {
+            background: #F39C12;
+            color: white;
+        }
+
+        .sync-status.error {
+            background: #E74C3C;
+            color: white;
+        }
+
         .main-content {
             display: grid;
             grid-template-columns: 1fr 300px;
@@ -166,6 +190,12 @@
             background: #333333;
             transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
         }
 
         .btn-success {
@@ -370,7 +400,10 @@
     <div class="container">
         <header>
             <h1>📰 School Gazette Tracker</h1>
-            <p class="subtitle">Manage your gazette issues and track article progress • <strong>Synced across all users</strong></p>
+            <p class="subtitle">
+                Manage your gazette issues and track article progress • <strong>Synced across all users</strong>
+                <span id="syncStatus" class="sync-status syncing">Connecting...</span>
+            </p>
         </header>
 
         <div class="main-content">
@@ -391,7 +424,7 @@
                     <div class="home-section">
                         <h2>All Issues</h2>
                         <div id="homeIssueList">
-                            <p style="color: #666;">No issues created yet. Create your first issue above!</p>
+                            <p style="color: #666;">Loading...</p>
                         </div>
                     </div>
                 </div>
@@ -409,54 +442,88 @@
         </div>
     </div>
 
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+
     <script>
+        // ============================================
+        // FIREBASE CONFIGURATION
+        // ============================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyCxPRVjOB8R0fiWbXfVY4DHVHpPqw4UflI",
+            authDomain: "school-gazette-tracker-6d964.firebaseapp.com",
+            databaseURL: "https://school-gazette-tracker-6d964-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "school-gazette-tracker-6d964",
+            storageBucket: "school-gazette-tracker-6d964.firebasestorage.app",
+            messagingSenderId: "1083411844838",
+            appId: "1:1083411844838:web:f2e8fe06fedd4984793527",
+            measurementId: "G-D7RSL7LNFQ"
+        };
+
+        // Initialize Firebase
+        let db;
+        try {
+            firebase.initializeApp(firebaseConfig);
+            db = firebase.database();
+            updateSyncStatus('synced', '✓ Connected');
+        } catch (error) {
+            console.error('Firebase initialization error:', error);
+            updateSyncStatus('error', '✗ Connection Failed');
+            alert('Firebase configuration needed. Please follow the setup instructions.');
+        }
+
+        // ============================================
+        // APP LOGIC
+        // ============================================
         const WRITERS = ['TBD','Aarna', 'Amrutha', 'Arshdeep', 'Ashlyn', 'Avantika', 'Teshna', 'Anvi', 'Eunice', 'Heidi', 'Roksana', 'Sri', 'Zoeya', 'Viya', 'Ameera', 'Ameerah', 'Eira', 'Rakshita', 'Suha'];
         const WRITING_STATUSES = ['Not started', 'In progress', 'Complete'];
         const DESIGN_STATUSES = ['Not started', 'In progress', 'Complete'];
 
         let issues = {};
         let previousIssues = [];
-        let isSaving = false;
-        let isLoading = false;
+        let isInitialLoad = true;
 
-        function saveData() {
-            localStorage.setItem('gazetteIssues', JSON.stringify(issues));
-            localStorage.setItem('gazettePreviousIssues', JSON.stringify(previousIssues));
+        function updateSyncStatus(status, text) {
+            const statusEl = document.getElementById('syncStatus');
+            statusEl.className = `sync-status ${status}`;
+            statusEl.textContent = text;
         }
 
-        function loadData() {
-            const savedIssues = localStorage.getItem('gazetteIssues');
-            const savedPrevious = localStorage.getItem('gazettePreviousIssues');
-            
-            if (savedIssues) {
-                try {
-                    issues = JSON.parse(savedIssues);
-                    Object.keys(issues).forEach(issueName => {
-                        if (issues[issueName].articles) {
-                            issues[issueName].articles = issues[issueName].articles.map(article => {
-                                if (!article.writingStatus) {
-                                    return {
-                                        topic: article.topic || '',
-                                        writer: article.writer || '',
-                                        writingStatus: article.status || 'Not started',
-                                        designStatus: 'Not started'
-                                    };
-                                }
-                                return article;
-                            });
-                        }
-                    });
-                } catch (e) {
-                    issues = {};
+        // Firebase Data Listeners
+        function initializeFirebaseListeners() {
+            // Listen to issues
+            db.ref('issues').on('value', (snapshot) => {
+                const data = snapshot.val();
+                issues = data || {};
+                
+                if (!isInitialLoad) {
+                    updateSyncStatus('synced', '✓ Synced');
                 }
-            }
-            if (savedPrevious) {
-                try {
-                    previousIssues = JSON.parse(savedPrevious);
-                } catch (e) {
-                    previousIssues = [];
-                }
-            }
+                
+                renderTabs();
+                renderHomeIssueList();
+                isInitialLoad = false;
+            });
+
+            // Listen to previous issues
+            db.ref('previousIssues').on('value', (snapshot) => {
+                const data = snapshot.val();
+                previousIssues = data || [];
+                renderPreviousIssues();
+            });
+        }
+
+        function saveToFirebase(path, data) {
+            updateSyncStatus('syncing', '↻ Syncing...');
+            db.ref(path).set(data)
+                .then(() => {
+                    updateSyncStatus('synced', '✓ Synced');
+                })
+                .catch((error) => {
+                    console.error('Save error:', error);
+                    updateSyncStatus('error', '✗ Sync Failed');
+                });
         }
 
         function showTab(tabName) {
@@ -483,10 +550,12 @@
             const name = nameInput.value.trim();
             
             if (!name) {
+                alert('Please enter an issue name');
                 return;
             }
 
             if (issues[name]) {
+                alert('An issue with this name already exists');
                 return;
             }
 
@@ -496,17 +565,17 @@
             };
 
             nameInput.value = '';
-            saveData();
-            renderTabs();
-            renderHomeIssueList();
+            saveToFirebase('issues', issues);
             showTab(name);
         }
 
         function deleteIssue(name) {
+            if (!confirm(`Are you sure you want to delete "${name}"?`)) {
+                return;
+            }
+
             delete issues[name];
-            saveData();
-            renderTabs();
-            renderHomeIssueList();
+            saveToFirebase('issues', issues);
             showTab('home');
         }
 
@@ -579,6 +648,10 @@
             
             tbody.innerHTML = '';
 
+            if (!issue.articles) {
+                issue.articles = [];
+            }
+
             issue.articles.forEach((article, index) => {
                 const row = tbody.insertRow();
                 
@@ -587,16 +660,9 @@
                 topicInput.type = 'text';
                 topicInput.value = article.topic || '';
                 topicInput.placeholder = 'Enter article topic...';
-                topicInput.onkeypress = (e) => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        const writerSelect = row.cells[1].querySelector('select');
-                        if (writerSelect) writerSelect.focus();
-                    }
-                };
                 topicInput.onchange = () => {
                     issues[issueName].articles[index].topic = topicInput.value;
-                    saveData();
+                    saveToFirebase('issues', issues);
                 };
                 topicCell.appendChild(topicInput);
 
@@ -610,16 +676,9 @@
                     if (article.writer === writer) option.selected = true;
                     writerSelect.appendChild(option);
                 });
-                writerSelect.onkeypress = (e) => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        const writingSelect = row.cells[2].querySelector('select');
-                        if (writingSelect) writingSelect.focus();
-                    }
-                };
                 writerSelect.onchange = () => {
                     issues[issueName].articles[index].writer = writerSelect.value;
-                    saveData();
+                    saveToFirebase('issues', issues);
                 };
                 writerCell.appendChild(writerSelect);
 
@@ -633,17 +692,10 @@
                     writingSelect.appendChild(option);
                 });
                 writingSelect.className = `status-${(article.writingStatus || 'Not started').toLowerCase().replace(' ', '-')}`;
-                writingSelect.onkeypress = (e) => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        const designSelect = row.cells[3].querySelector('select');
-                        if (designSelect) designSelect.focus();
-                    }
-                };
                 writingSelect.onchange = () => {
                     issues[issueName].articles[index].writingStatus = writingSelect.value;
                     writingSelect.className = `status-${writingSelect.value.toLowerCase().replace(' ', '-')}`;
-                    saveData();
+                    saveToFirebase('issues', issues);
                 };
                 writingStatusCell.appendChild(writingSelect);
 
@@ -657,20 +709,10 @@
                     designSelect.appendChild(option);
                 });
                 designSelect.className = `status-${(article.designStatus || 'Not started').toLowerCase().replace(' ', '-')}`;
-                designSelect.onkeypress = (e) => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        const nextRow = row.nextElementSibling;
-                        if (nextRow) {
-                            const nextInput = nextRow.cells[0].querySelector('input');
-                            if (nextInput) nextInput.focus();
-                        }
-                    }
-                };
                 designSelect.onchange = () => {
                     issues[issueName].articles[index].designStatus = designSelect.value;
                     designSelect.className = `status-${designSelect.value.toLowerCase().replace(' ', '-')}`;
-                    saveData();
+                    saveToFirebase('issues', issues);
                 };
                 designStatusCell.appendChild(designSelect);
 
@@ -688,6 +730,10 @@
                 issues[issueName] = { canvaLink: '', articles: [] };
             }
             
+            if (!issues[issueName].articles) {
+                issues[issueName].articles = [];
+            }
+            
             issues[issueName].articles.push({
                 topic: '',
                 writer: '',
@@ -695,15 +741,13 @@
                 designStatus: 'Not started'
             });
             
-            saveData();
-            renderArticles(issueName);
+            saveToFirebase('issues', issues);
         }
 
         function deleteArticle(issueName, index) {
             if (issues[issueName] && issues[issueName].articles) {
                 issues[issueName].articles.splice(index, 1);
-                saveData();
-                renderArticles(issueName);
+                saveToFirebase('issues', issues);
             }
         }
 
@@ -734,8 +778,7 @@
                     issues[issueName].canvaLink = '';
                 }
                 
-                saveData();
-                renderIssueContent(issueName);
+                saveToFirebase('issues', issues);
             }
         }
 
@@ -756,7 +799,7 @@
                             <a href="#" onclick="event.preventDefault(); showTab('${escapedName}');">
                                 📄 ${name}
                                 <span style="float: right; color: #666; font-size: 0.9em;">
-                                    ${issues[name].articles.length} articles
+                                    ${issues[name].articles ? issues[name].articles.length : 0} articles
                                 </span>
                             </a>
                         </li>
@@ -772,36 +815,40 @@
             const url = urlInput.value.trim();
 
             if (!name || !url) {
+                alert('Please enter both name and URL');
                 return;
             }
 
+            let finalUrl = url;
             try {
                 new URL(url);
             } catch (e) {
                 if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                    finalUrl = 'https://' + url;
                     try {
-                        new URL('https://' + url);
-                        urlInput.value = 'https://' + url;
-                        return;
+                        new URL(finalUrl);
                     } catch (e2) {
+                        alert('Please enter a valid URL');
                         return;
                     }
                 } else {
+                    alert('Please enter a valid URL');
                     return;
                 }
             }
 
-            previousIssues.push({ name, url: urlInput.value });
+            previousIssues.push({ name, url: finalUrl });
             nameInput.value = '';
             urlInput.value = '';
-            saveData();
-            renderPreviousIssues();
+            saveToFirebase('previousIssues', previousIssues);
         }
 
         function deletePreviousIssue(index) {
+            if (!confirm('Are you sure you want to delete this link?')) {
+                return;
+            }
             previousIssues.splice(index, 1);
-            saveData();
-            renderPreviousIssues();
+            saveToFirebase('previousIssues', previousIssues);
         }
 
         function renderPreviousIssues() {
@@ -823,10 +870,9 @@
         }
 
         // Initialize app
-        loadData();
-        renderTabs();
-        renderHomeIssueList();
-        renderPreviousIssues();
+        if (db) {
+            initializeFirebaseListeners();
+        }
     </script>
 </body>
 </html>
