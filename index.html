@@ -606,6 +606,57 @@
             cursor: pointer;
         }
 
+        .calendar-day {
+            aspect-ratio: 1;
+            padding: 12px;
+            border: 2px solid #e8eaed;
+            border-radius: 12px;
+            position: relative;
+            background: white;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .calendar-day:hover {
+            border-color: #DC143C;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .calendar-day.has-events {
+            border-color: #f39c12;
+            background: #fff3cd;
+        }
+
+        .calendar-day.today {
+            background: #e8f5e9;
+            border-color: #2ecc71;
+        }
+
+        .event-dot {
+            position: absolute;
+            bottom: 8px;
+            right: 8px;
+            width: 10px;
+            height: 10px;
+            background: #e74c3c;
+            border-radius: 50%;
+        }
+
+        .event-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.75em;
+            font-weight: 600;
+            margin: 4px;
+        }
+
+        .event-meeting { background: #DC143C; color: white; }
+        .event-articles { background: #2ecc71; color: white; }
+        .event-designs { background: #8B0000; color: white; }
+        .event-submit { background: #1a1a1a; color: white; }
+        .event-custom { background: #667eea; color: white; }
+
         @media (max-width: 1200px) {
             .layout { grid-template-columns: 1fr; }
             .sidebar-card { position: static; }
@@ -697,18 +748,28 @@
     <script>
         const WRITERS = ['TBD','Aarna','Amrutha','Arshdeep','Ashlyn','Avantika','Teshna','Anvi','Eunice','Heidi','Roksana','Sri','Zoeya','Viya','Ameera','Ameerah','Eira','Rakshita','Suha'];
         const STATUSES = ['Not started','In progress','Review','Complete'];
+        const EVENT_TYPES = [
+            { value: 'meeting', label: 'Meeting', color: 'event-meeting' },
+            { value: 'articles', label: 'Finish All Articles', color: 'event-articles' },
+            { value: 'designs', label: 'Finish All Designs', color: 'event-designs' },
+            { value: 'submit', label: 'Submit Articles', color: 'event-submit' },
+            { value: 'custom', label: 'Custom Event', color: 'event-custom' }
+        ];
         
         let appData = {
             issues: {},
             meetings: [],
             writers: {},
             activities: [],
+            calendarEvents: [],
             settings: { darkMode: false }
         };
 
         let currentView = 'dashboard';
         let searchQuery = '';
         let selectedAttendees = new Set();
+        let currentMonth = new Date().getMonth();
+        let currentYear = new Date().getFullYear();
 
         // Initialize writers
         WRITERS.forEach(writer => {
@@ -741,7 +802,6 @@
                     const loadedData = JSON.parse(result.value);
                     appData = { ...appData, ...loadedData };
                     
-                    // Apply dark mode if saved
                     if (appData.settings?.darkMode) {
                         document.body.classList.add('dark');
                     }
@@ -768,7 +828,6 @@
                 timestamp: Date.now()
             });
             
-            // Keep only last 50 activities
             if (appData.activities.length > 50) {
                 appData.activities = appData.activities.slice(0, 50);
             }
@@ -806,13 +865,11 @@
         function navigateTo(view) {
             currentView = view;
             
-            // Update active nav item
             document.querySelectorAll('.nav-item').forEach(item => {
                 item.classList.remove('active');
             });
             event.currentTarget.classList.add('active');
             
-            // Render the appropriate view
             switch(view) {
                 case 'dashboard':
                     renderDashboard();
@@ -841,6 +898,18 @@
             }
         }
 
+        // Calculate completion considering BOTH writing and design
+        function isArticleComplete(article) {
+            return article.writingStatus === 'Complete' && article.designStatus === 'Complete';
+        }
+
+        function calculateIssueProgress(issue) {
+            const total = issue.articles?.length || 0;
+            const complete = issue.articles?.filter(isArticleComplete).length || 0;
+            const percent = total ? Math.round((complete / total) * 100) : 0;
+            return { total, complete, percent };
+        }
+
         // Dashboard
         function renderDashboard() {
             const totalIssues = Object.keys(appData.issues).length;
@@ -848,7 +917,7 @@
                 sum + (issue.articles?.length || 0), 0
             );
             const completedArticles = Object.values(appData.issues).reduce((sum, issue) => 
-                sum + (issue.articles?.filter(a => a.writingStatus === 'Complete').length || 0), 0
+                sum + (issue.articles?.filter(isArticleComplete).length || 0), 0
             );
             const progressPercent = totalArticles ? Math.round((completedArticles / totalArticles) * 100) : 0;
 
@@ -868,7 +937,7 @@
                         <div class="stat-value">${totalArticles}</div>
                     </div>
                     <div class="stat-card" style="background: linear-gradient(135deg, #8B0000 0%, #5A0000 100%);">
-                        <h3>Completed</h3>
+                        <h3>Fully Complete</h3>
                         <div class="stat-value">${completedArticles}</div>
                     </div>
                     <div class="stat-card" style="background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);">
@@ -885,9 +954,7 @@
                 ${totalIssues === 0 ? 
                     '<div class="empty-state"><div class="empty-state-icon">📰</div><p>No issues yet. Create your first issue to get started!</p></div>' :
                     Object.entries(appData.issues).slice(-5).reverse().map(([name, issue]) => {
-                        const total = issue.articles?.length || 0;
-                        const complete = issue.articles?.filter(a => a.writingStatus === 'Complete').length || 0;
-                        const percent = total ? Math.round((complete / total) * 100) : 0;
+                        const { total, complete, percent } = calculateIssueProgress(issue);
                         
                         return `
                             <div class="profile-card">
@@ -895,7 +962,7 @@
                                     <div>
                                         <h4>${name}</h4>
                                         <div style="font-size:0.9em;color:#7f8c8d;margin-top:6px;">
-                                            ${total} articles • ${complete} complete
+                                            ${total} articles • ${complete} fully complete
                                         </div>
                                     </div>
                                     <button class="btn btn-primary" onclick="openIssue('${name.replace(/'/g, "\\'")}')">
@@ -942,7 +1009,6 @@
                 `<button class="tab" onclick="selectIssueTab('${name.replace(/'/g, "\\'")}', event)">${name}</button>`
             ).join('');
             
-            // Show first issue by default
             selectIssueTab(issueNames[0]);
         }
 
@@ -962,9 +1028,7 @@
             const issue = appData.issues[issueName];
             if (!issue) return;
 
-            const total = issue.articles?.length || 0;
-            const complete = issue.articles?.filter(a => a.writingStatus === 'Complete').length || 0;
-            const percent = total ? Math.round((complete / total) * 100) : 0;
+            const { total, complete, percent } = calculateIssueProgress(issue);
 
             const container = document.getElementById('issueDetailsContainer');
             container.innerHTML = `
@@ -973,7 +1037,7 @@
                         <div>
                             <h3>${issueName}</h3>
                             <div style="font-size:0.9em;color:#7f8c8d;margin-top:4px;">
-                                ${total} articles • ${complete} complete (${percent}%)
+                                ${total} articles • ${complete} fully complete (${percent}%)
                             </div>
                         </div>
                         <button class="btn btn-danger" onclick="deleteIssue('${issueName.replace(/'/g, "\\'")}')">
@@ -1188,6 +1252,7 @@
                                         <div class="meta">
                                             <div><strong>Writer:</strong> ${article.writer || 'Unassigned'}</div>
                                             <div><strong>Issue:</strong> ${article.issueName}</div>
+                                            <div><strong>Design:</strong> ${article.designStatus || 'Not started'}</div>
                                             ${article.deadline ? `<div style="color:#e74c3c;"><strong>Due:</strong> ${new Date(article.deadline).toLocaleDateString()}</div>` : ''}
                                         </div>
                                     </div>
@@ -1201,25 +1266,22 @@
 
         // Calendar View
         function renderCalendarView() {
-            const now = new Date();
-            const year = now.getFullYear();
-            const month = now.getMonth();
-            const daysInMonth = new Date(year, month + 1, 0).getDate();
-            const firstDay = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+            const firstDay = new Date(currentYear, currentMonth, 1).getDay();
             
-            const deadlinesByDay = {};
-            Object.values(appData.issues).forEach(issue => {
-                issue.articles?.forEach(article => {
-                    if (article.deadline) {
-                        const deadlineDate = new Date(article.deadline);
-                        if (deadlineDate.getMonth() === month && deadlineDate.getFullYear() === year) {
-                            const day = deadlineDate.getDate();
-                            if (!deadlinesByDay[day]) deadlinesByDay[day] = [];
-                            deadlinesByDay[day].push(article);
-                        }
+            const eventsByDay = {};
+            if (appData.calendarEvents) {
+                appData.calendarEvents.forEach(event => {
+                    const eventDate = new Date(event.date);
+                    if (eventDate.getMonth() === currentMonth && eventDate.getFullYear() === currentYear) {
+                        const day = eventDate.getDate();
+                        if (!eventsByDay[day]) eventsByDay[day] = [];
+                        eventsByDay[day].push(event);
                     }
                 });
-            });
+            }
+
+            const monthName = new Date(currentYear, currentMonth).toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
             let calendarHTML = '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-top:20px;">';
             
@@ -1231,34 +1293,18 @@
                 calendarHTML += '<div></div>';
             }
             
+            const today = new Date();
             for (let day = 1; day <= daysInMonth; day++) {
-                const hasDeadlines = deadlinesByDay[day];
-                const isToday = day === now.getDate() && month === now.getMonth() && year === now.getFullYear();
+                const hasEvents = eventsByDay[day];
+                const isToday = day === today.getDate() && currentMonth === today.getMonth() && currentYear === today.getFullYear();
                 
                 calendarHTML += `
-                    <div style="
-                        aspect-ratio:1;
-                        padding:12px;
-                        border:2px solid ${hasDeadlines ? '#f39c12' : '#e8eaed'};
-                        border-radius:12px;
-                        position:relative;
-                        background:${hasDeadlines ? '#fff3cd' : isToday ? '#e8f5e9' : 'white'};
-                        cursor:${hasDeadlines ? 'pointer' : 'default'};
-                    " ${hasDeadlines ? `onclick="showDayDeadlines(${day}, '${now.toLocaleString('en-US', {month:'long'})}')"` : ''}>
+                    <div class="calendar-day ${hasEvents ? 'has-events' : ''} ${isToday ? 'today' : ''}"
+                        onclick="showDayEvents(${day}, '${monthName}')">
                         <div style="font-weight:${isToday ? '700' : '600'};color:${isToday ? '#27ae60' : '#2c3e50'};">
                             ${day}
                         </div>
-                        ${hasDeadlines ? `
-                            <div style="
-                                position:absolute;
-                                bottom:8px;
-                                right:8px;
-                                width:10px;
-                                height:10px;
-                                background:#e74c3c;
-                                border-radius:50%;
-                            "></div>
-                        ` : ''}
+                        ${hasEvents ? '<div class="event-dot"></div>' : ''}
                     </div>
                 `;
             }
@@ -1267,57 +1313,188 @@
             const workspace = document.getElementById('mainWorkspace');
             workspace.innerHTML = `
                 <div class="section-header">
-                    <h2>Calendar - ${now.toLocaleString('en-US', {month: 'long', year: 'numeric'})}</h2>
+                    <h2>Calendar - ${monthName}</h2>
+                    <div style="display:flex;gap:10px;">
+                        <button class="btn btn-secondary" onclick="changeMonth(-1)">← Previous</button>
+                        <button class="btn btn-success" onclick="addCalendarEvent()">+ Add Event</button>
+                        <button class="btn btn-secondary" onclick="changeMonth(1)">Next →</button>
+                    </div>
                 </div>
                 ${calendarHTML}
                 
                 <div class="section-header" style="margin-top:35px;">
-                    <h3>Upcoming Deadlines</h3>
+                    <h3>Upcoming Events</h3>
                 </div>
-                ${Object.keys(deadlinesByDay).length === 0 ?
-                    '<div class="empty-state"><div class="empty-state-icon">📅</div><p>No deadlines this month</p></div>' :
-                    Object.entries(deadlinesByDay).sort((a, b) => parseInt(a[0]) - parseInt(b[0])).map(([day, articles]) => `
+                ${Object.keys(eventsByDay).length === 0 ?
+                    '<div class="empty-state"><div class="empty-state-icon">📅</div><p>No events this month</p></div>' :
+                    Object.entries(eventsByDay).sort((a, b) => parseInt(a[0]) - parseInt(b[0])).map(([day, events]) => `
                         <div class="profile-card">
                             <h4 style="margin-bottom:12px;">
-                                ${now.toLocaleString('en-US', {month: 'long'})} ${day}, ${year}
+                                ${monthName.split(',')[0]} ${day}, ${currentYear}
                             </h4>
-                            ${articles.map(article => `
-                                <div style="padding:10px;background:#f8f9fa;margin:6px 0;border-radius:8px;border:1px solid #e8eaed;">
-                                    <strong>${article.topic || 'Untitled'}</strong> - ${article.writer || 'Unassigned'}
-                                </div>
-                            `).join('')}
+                            ${events.map(event => {
+                                const eventType = EVENT_TYPES.find(t => t.value === event.type);
+                                return `
+                                    <div style="padding:10px;background:#f8f9fa;margin:6px 0;border-radius:8px;border:1px solid #e8eaed;display:flex;justify-content:space-between;align-items:center;">
+                                        <div>
+                                            <span class="event-badge ${eventType?.color || 'event-custom'}">${event.name}</span>
+                                            ${event.description ? `<div style="margin-top:6px;font-size:0.9em;color:#7f8c8d;">${event.description}</div>` : ''}
+                                        </div>
+                                        <button class="btn btn-danger" onclick="deleteCalendarEvent('${event.id}')" style="padding:6px 12px;font-size:0.85em;">
+                                            Delete
+                                        </button>
+                                    </div>
+                                `;
+                            }).join('')}
                         </div>
                     `).join('')
                 }
             `;
         }
 
-        function showDayDeadlines(day, monthName) {
-            const deadlines = [];
-            Object.values(appData.issues).forEach(issue => {
-                issue.articles?.forEach(article => {
-                    if (article.deadline) {
-                        const deadlineDate = new Date(article.deadline);
-                        if (deadlineDate.getDate() === day) {
-                            deadlines.push(article);
-                        }
-                    }
-                });
+        function changeMonth(direction) {
+            currentMonth += direction;
+            if (currentMonth > 11) {
+                currentMonth = 0;
+                currentYear++;
+            } else if (currentMonth < 0) {
+                currentMonth = 11;
+                currentYear--;
+            }
+            renderCalendarView();
+        }
+
+        function addCalendarEvent() {
+            showModal('Add Calendar Event', `
+                <div class="form-group">
+                    <label>Event Type</label>
+                    <select id="eventType" onchange="toggleCustomEventName()">
+                        ${EVENT_TYPES.map(type => 
+                            `<option value="${type.value}">${type.label}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+                <div class="form-group" id="customNameGroup" style="display:none;">
+                    <label>Event Name</label>
+                    <input type="text" id="eventCustomName" placeholder="Enter custom event name">
+                </div>
+                <div class="form-group">
+                    <label>Date</label>
+                    <input type="date" id="eventDate" value="${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01">
+                </div>
+                <div class="form-group">
+                    <label>Description (Optional)</label>
+                    <textarea id="eventDescription" placeholder="Add details about this event" style="min-height:80px;"></textarea>
+                </div>
+                <button class="btn btn-success" onclick="saveCalendarEvent()">Add Event</button>
+            `);
+        }
+
+        function toggleCustomEventName() {
+            const typeSelect = document.getElementById('eventType');
+            const customGroup = document.getElementById('customNameGroup');
+            customGroup.style.display = typeSelect.value === 'custom' ? 'block' : 'none';
+        }
+
+        function saveCalendarEvent() {
+            const typeSelect = document.getElementById('eventType');
+            const customNameInput = document.getElementById('eventCustomName');
+            const dateInput = document.getElementById('eventDate');
+            const descInput = document.getElementById('eventDescription');
+
+            const type = typeSelect.value;
+            const date = dateInput.value;
+            const description = descInput.value.trim();
+
+            if (!date) {
+                alert('Please select a date');
+                return;
+            }
+
+            let name;
+            if (type === 'custom') {
+                name = customNameInput.value.trim();
+                if (!name) {
+                    alert('Please enter an event name');
+                    return;
+                }
+            } else {
+                const eventType = EVENT_TYPES.find(t => t.value === type);
+                name = eventType.label;
+            }
+
+            if (!appData.calendarEvents) {
+                appData.calendarEvents = [];
+            }
+
+            appData.calendarEvents.push({
+                id: Date.now().toString(),
+                type: type,
+                name: name,
+                date: date,
+                description: description,
+                timestamp: Date.now()
             });
 
-            if (deadlines.length === 0) return;
+            saveData();
+            addActivity('System', `Added event: ${name}`);
+            closeModal();
+            renderCalendarView();
+        }
 
-            showModal(`Deadlines - ${monthName} ${day}`, `
+        function deleteCalendarEvent(eventId) {
+            if (confirm('Delete this event?')) {
+                appData.calendarEvents = appData.calendarEvents.filter(e => e.id !== eventId);
+                saveData();
+                addActivity('System', 'Deleted calendar event');
+                renderCalendarView();
+            }
+        }
+
+        function showDayEvents(day, monthName) {
+            const events = [];
+            if (appData.calendarEvents) {
+                appData.calendarEvents.forEach(event => {
+                    const eventDate = new Date(event.date);
+                    if (eventDate.getDate() === day && eventDate.getMonth() === currentMonth && eventDate.getFullYear() === currentYear) {
+                        events.push(event);
+                    }
+                });
+            }
+
+            if (events.length === 0) {
+                showModal(`${monthName.split(',')[0]} ${day}`, `
+                    <div class="empty-state" style="padding:40px 20px;">
+                        <div style="font-size:3em;margin-bottom:15px;">📅</div>
+                        <p>No events on this day</p>
+                        <button class="btn btn-success" onclick="closeModal(); addCalendarEvent();" style="margin-top:20px;">
+                            + Add Event
+                        </button>
+                    </div>
+                `);
+                return;
+            }
+
+            showModal(`Events - ${monthName.split(',')[0]} ${day}`, `
                 <div style="max-height:400px;overflow-y:auto;">
-                    ${deadlines.map(article => `
-                        <div class="profile-card" style="margin-bottom:12px;">
-                            <h4>${article.topic || 'Untitled Article'}</h4>
-                            <div style="margin-top:8px;font-size:0.9em;color:#7f8c8d;">
-                                Writer: ${article.writer || 'Unassigned'}<br>
-                                Status: ${article.writingStatus || 'Not started'}
+                    ${events.map(event => {
+                        const eventType = EVENT_TYPES.find(t => t.value === event.type);
+                        return `
+                            <div class="profile-card" style="margin-bottom:12px;">
+                                <h4>
+                                    <span class="event-badge ${eventType?.color || 'event-custom'}">${event.name}</span>
+                                </h4>
+                                ${event.description ? `
+                                    <div style="margin-top:12px;padding:12px;background:#f8f9fa;border-radius:8px;color:#2c3e50;">
+                                        ${event.description}
+                                    </div>
+                                ` : ''}
+                                <button class="btn btn-danger" onclick="deleteCalendarEvent('${event.id}'); closeModal(); renderCalendarView();" style="margin-top:12px;padding:8px 16px;font-size:0.9em;">
+                                    Delete Event
+                                </button>
                             </div>
-                        </div>
-                    `).join('')}
+                        `;
+                    }).join('')}
                 </div>
             `);
         }
@@ -1326,7 +1503,6 @@
         function renderTeamView() {
             const writers = Object.values(appData.writers).filter(w => w.name !== 'TBD');
             
-            // Calculate current stats
             writers.forEach(writer => {
                 writer.currentArticles = 0;
                 writer.currentCompleted = 0;
@@ -1335,7 +1511,7 @@
                     issue.articles?.forEach(article => {
                         if (article.writer === writer.name) {
                             writer.currentArticles++;
-                            if (article.writingStatus === 'Complete') {
+                            if (isArticleComplete(article)) {
                                 writer.currentCompleted++;
                             }
                         }
@@ -1497,7 +1673,6 @@
                 timestamp: Date.now()
             });
 
-            // Update attendance count for each writer
             selectedAttendees.forEach(writerName => {
                 if (appData.writers[writerName]) {
                     appData.writers[writerName].attendance = (appData.writers[writerName].attendance || 0) + 1;
@@ -1581,7 +1756,7 @@
                 sum + (issue.articles?.length || 0), 0
             );
             const completedArticles = Object.values(appData.issues).reduce((sum, issue) => 
-                sum + (issue.articles?.filter(a => a.writingStatus === 'Complete').length || 0), 0
+                sum + (issue.articles?.filter(isArticleComplete).length || 0), 0
             );
             const inProgressArticles = Object.values(appData.issues).reduce((sum, issue) => 
                 sum + (issue.articles?.filter(a => a.writingStatus === 'In progress').length || 0), 0
@@ -1595,7 +1770,7 @@
                 issue.articles?.forEach(article => {
                     if (writerStats[article.writer]) {
                         writerStats[article.writer].total++;
-                        if (article.writingStatus === 'Complete') {
+                        if (isArticleComplete(article)) {
                             writerStats[article.writer].complete++;
                         }
                     }
@@ -1614,7 +1789,7 @@
                         <div class="stat-value">${totalArticles}</div>
                     </div>
                     <div class="stat-card" style="background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);">
-                        <h3>Completed</h3>
+                        <h3>Fully Complete</h3>
                         <div class="stat-value">${completedArticles}</div>
                     </div>
                     <div class="stat-card" style="background: linear-gradient(135deg, #1a1a1a 0%, #000000 100%);">
@@ -1641,7 +1816,7 @@
                                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
                                     <h4>${writer}</h4>
                                     <div style="color:#7f8c8d;font-size:0.95em;">
-                                        ${data.complete}/${data.total} completed (${rate}%)
+                                        ${data.complete}/${data.total} fully complete (${rate}%)
                                     </div>
                                 </div>
                                 <div class="progress">
@@ -1660,7 +1835,7 @@
             
             Object.entries(appData.issues).forEach(([issueName, issue]) => {
                 issue.articles?.forEach(article => {
-                    if (article.writingStatus === 'Complete') {
+                    if (isArticleComplete(article)) {
                         completedArticles.push({
                             ...article,
                             issueName: issueName
@@ -1675,7 +1850,7 @@
                     <h2>Article Archive</h2>
                 </div>
                 <p style="color:#7f8c8d;margin-bottom:20px;font-size:0.95em;">
-                    ${completedArticles.length} completed articles
+                    ${completedArticles.length} fully completed articles (writing & design)
                 </p>
                 
                 ${completedArticles.length === 0 ? 
@@ -1739,7 +1914,6 @@
             addActivity('System', `Created issue: ${name}`);
             closeModal();
             
-            // Navigate to issues view and open the new issue
             currentView = 'issues';
             renderIssuesView();
         }
@@ -1965,7 +2139,6 @@
                 if (oldData !== newData) {
                     console.log('Data synced from server');
                     
-                    // Re-render current view
                     switch(currentView) {
                         case 'dashboard':
                             renderDashboard();
@@ -1998,7 +2171,6 @@
             console.log('Initialization complete!');
         }
 
-        // Start the app
         initializeApp();
     </script>
 </body>
