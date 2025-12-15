@@ -943,66 +943,144 @@
 
         async function loadData() {
             try {
-                updateSyncStatus('loading', '📥 Loading...');
-                const dataRef = window.dbRef(window.db, 'gazetteData');
-                const snapshot = await window.dbGet(dataRef);
+                console.log('📥 === STARTING LOAD ===');
+                updateSyncStatus('loading', '⟳ Loading...');
                 
-                if (snapshot.exists()) {
+                if (!useFallbackStorage && firebaseInitialized && db) {
+                    console.log('📡 Loading from Firebase...');
+                    
+                    // CRITICAL: Use once() to get data without triggering listeners
+                    const snapshot = await db.ref('gazetteData').once('value');
                     const loadedData = snapshot.val();
-                    appData = {
-                        issues: loadedData.issues || {},
-                        meetings: loadedData.meetings || [],
-                        writers: loadedData.writers || {},
-                        activities: loadedData.activities || [],
-                        calendarEvents: loadedData.calendarEvents || [],
-                        settings: loadedData.settings || { darkMode: false }
-                    };
+                    
+                    console.log('Firebase returned:', loadedData);
+                    
+                    if (loadedData) {
+                        // Data exists - use it
+                        appData.issues = loadedData.issues || {};
+                        appData.meetings = loadedData.meetings || [];
+                        appData.writers = loadedData.writers || {};
+                        appData.activities = loadedData.activities || [];
+                        appData.calendarEvents = loadedData.calendarEvents || [];
+                        appData.settings = loadedData.settings || { darkMode: false };
+                        
+                        console.log('✅ Loaded from Firebase');
+                        console.log('Issues found:', Object.keys(appData.issues));
+                        updateSyncStatus('ok', '✓ Connected');
+                    } else {
+                        console.log('⚠️ Firebase returned null/empty');
+                        
+                        // Check localStorage for backup
+                        const backup = localStorage.getItem('gazette-backup');
+                        if (backup) {
+                            console.log('📦 Found backup, restoring...');
+                            const backupData = JSON.parse(backup);
+                            appData.issues = backupData.issues || {};
+                            appData.meetings = backupData.meetings || [];
+                            appData.writers = backupData.writers || {};
+                            appData.activities = backupData.activities || [];
+                            appData.calendarEvents = backupData.calendarEvents || [];
+                            appData.settings = backupData.settings || { darkMode: false };
+                            
+                            console.log('✅ Restored from backup');
+                            console.log('💾 Uploading backup to Firebase...');
+                            
+                            // Upload to Firebase
+                            await db.ref('gazetteData').set(appData);
+                            console.log('✅ Backup uploaded');
+                        } else {
+                            console.log('ℹ️ No backup found - fresh start');
+                            updateSyncStatus('ok', '✓ Ready');
+                        }
+                    }
+                    
+                    // Ensure writers exist
+                    if (!appData.writers) appData.writers = {};
+                    WRITERS.forEach(writer => {
+                        if (writer !== 'TBD' && !appData.writers[writer]) {
+                            appData.writers[writer] = { 
+                                name: writer, 
+                                articles: 0, 
+                                attendance: 0, 
+                                badges: []
+                            };
+                        }
+                    });
                     
                     if (appData.settings?.darkMode) {
                         document.body.classList.add('dark');
                     }
                     
-                    console.log('✅ Data loaded from Firebase');
-                    updateSyncStatus('ok', '✓ Connected');
-                } else {
-                    console.log('No existing data, starting fresh');
+                    console.log('✅ === LOAD COMPLETE ===');
+                    console.log('Final appData:', appData);
                     updateSyncStatus('ok', '✓ Ready');
-                    // Save initial structure
-                    await saveData();
+                    
+                } else {
+                    console.log('⚠️ Firebase not available');
+                    
+                    // Try localStorage
+                    const localData = localStorage.getItem('gazette-data') || 
+                                     localStorage.getItem('gazette-backup');
+                    
+                    if (localData) {
+                        const loadedData = JSON.parse(localData);
+                        appData.issues = loadedData.issues || {};
+                        appData.meetings = loadedData.meetings || [];
+                        appData.writers = loadedData.writers || {};
+                        appData.activities = loadedData.activities || [];
+                        appData.calendarEvents = loadedData.calendarEvents || [];
+                        appData.settings = loadedData.settings || { darkMode: false };
+                        
+                        console.log('✅ Loaded from localStorage');
+                        updateSyncStatus('ok', '✓ Local');
+                    } else {
+                        console.log('ℹ️ No data found');
+                        updateSyncStatus('ok', '✓ Ready');
+                    }
                 }
             } catch (error) {
-                console.error('❌ Load error:', error);
-                updateSyncStatus('error', '✗ Connection failed');
-                alert('Failed to load from Firebase: ' + error.message);
+                console.error('❌ === LOAD FAILED ===');
+                console.error('Error:', error);
+                updateSyncStatus('error', '✗ Load failed');
+                
+                // Try all backups
+                const sources = ['gazette-backup', 'gazette-emergency-backup', 'gazette-data'];
+                for (const source of sources) {
+                    try {
+                        const backup = localStorage.getItem(source);
+                        if (backup) {
+                            const data = JSON.parse(backup);
+                            appData.issues = data.issues || {};
+                            appData.meetings = data.meetings || [];
+                            appData.writers = data.writers || {};
+                            appData.activities = data.activities || [];
+                            appData.calendarEvents = data.calendarEvents || [];
+                            appData.settings = data.settings || { darkMode: false };
+                            
+                            console.log(`✅ Recovered from ${source}`);
+                            updateSyncStatus('ok', '✓ Recovered');
+                            break;
+                        }
+                    } catch (e) {
+                        console.log(`❌ ${source} failed`);
+                    }
+                }
             }
         }
 
         function setupRealtimeSync() {
-            const dataRef = window.dbRef(window.db, 'gazetteData');
-            window.dbOnValue(dataRef, (snapshot) => {
-                if (snapshot.exists() && !isSaving) {
-                    const serverData = snapshot.val();
-                    const serverTime = serverData.lastModified || 0;
-                    const localTime = appData.lastModified || 0;
-                    
-                    // Only update if server data is newer
-                    if (serverTime > localTime) {
-                        console.log('🔄 Syncing from server...');
-                        appData = {
-                            issues: serverData.issues || {},
-                            meetings: serverData.meetings || [],
-                            writers: serverData.writers || {},
-                            activities: serverData.activities || [],
-                            calendarEvents: serverData.calendarEvents || [],
-                            settings: serverData.settings || { darkMode: false }
-                        };
-                        
-                        // Refresh current view
-                        refreshCurrentView();
-                        renderActivityFeed();
-                    }
-                }
-            });
+            if (!firebaseInitialized || !db) {
+                console.log('⚠️ Cannot setup realtime sync - Firebase not initialized');
+                return;
+            }
+            
+            console.log('🔄 Setting up realtime sync...');
+            
+            // CRITICAL: DO NOT use on('value') - it causes the overwrite issue
+            // We only use once() in loadData(), and manual saves everywhere else
+            
+            console.log('✅ Realtime sync disabled to prevent data loss');
+            console.log('ℹ️ Using manual save/load only');
         }
 
         function refreshCurrentView() {
