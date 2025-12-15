@@ -751,21 +751,17 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
     
     <script>
-        // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+        // Firebase Configuration
         const firebaseConfig = {
-        apiKey: "AIzaSyCxPRVjOB8R0fiWbXfVY4DHVHpPqw4UflI",
-        authDomain: "school-gazette-tracker-6d964.firebaseapp.com",
-        databaseURL: "https://school-gazette-tracker-6d964-default-rtdb.asia-southeast1.firebasedatabase.app",
-        projectId: "school-gazette-tracker-6d964",
-        storageBucket: "school-gazette-tracker-6d964.firebasestorage.app",
-        messagingSenderId: "1083411844838",
-        appId: "1:1083411844838:web:f2e8fe06fedd4984793527",
-        measurementId: "G-D7RSL7LNFQ"
+            apiKey: "AIzaSyCxPRVjOB8R0fiWbXfVY4DHVHpPqw4UflI",
+            authDomain: "school-gazette-tracker-6d964.firebaseapp.com",
+            databaseURL: "https://school-gazette-tracker-6d964-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "school-gazette-tracker-6d964",
+            storageBucket: "school-gazette-tracker-6d964.firebasestorage.app",
+            messagingSenderId: "1083411844838",
+            appId: "1:1083411844838:web:f2e8fe06fedd4984793527",
+            measurementId: "G-D7RSL7LNFQ"
         };
-
-        // Check for stored Firebase config
-        const storedConfig = localStorage.getItem('firebaseConfig');
-        const configToUse = storedConfig ? JSON.parse(storedConfig) : firebaseConfig;
 
         // Initialize Firebase
         let db = null;
@@ -773,17 +769,16 @@
         let useFallbackStorage = false;
 
         try {
-            firebase.initializeApp(configToUse);
+            firebase.initializeApp(firebaseConfig);
             db = firebase.database();
             firebaseInitialized = true;
-            console.log('Firebase initialized successfully');
-            console.log('Using database:', configToUse.databaseURL);
+            console.log('✅ Firebase initialized successfully');
         } catch (error) {
-            console.error('Firebase initialization failed:', error);
-            console.log('Using fallback storage (window.storage or localStorage)');
+            console.error('❌ Firebase initialization failed:', error);
             useFallbackStorage = true;
         }
 
+        // Constants
         const WRITERS = ['TBD','Aarna','Amrutha','Arshdeep','Ashlyn','Avantika','Teshna','Anvi','Eunice','Heidi','Roksana','Sri','Zoeya','Viya','Ameera','Ameerah','Eira','Rakshita','Suha'];
         const STATUSES = ['Not started','In progress','Review','Complete'];
         const EVENT_TYPES = [
@@ -794,6 +789,7 @@
             { value: 'custom', label: 'Custom Event', color: 'event-custom' }
         ];
         
+        // App State
         let appData = {
             issues: {},
             meetings: [],
@@ -821,46 +817,54 @@
             }
         });
 
-        // Data persistence functions with Firebase
+        // ===== DATA PERSISTENCE FUNCTIONS =====
+        
         async function saveData() {
             try {
                 updateSyncStatus('loading', '⟳ Saving...');
+                console.log('💾 Saving to Firebase...');
                 
                 if (!useFallbackStorage && firebaseInitialized && db) {
                     // Save to Firebase
                     await db.ref('gazetteData').set(appData);
-                    console.log('Data saved to Firebase successfully');
-                    updateSyncStatus('ok', '✓ Synced to Firebase');
+                    console.log('✅ Data saved to Firebase');
+                    console.log('Saved issues:', Object.keys(appData.issues).length);
+                    updateSyncStatus('ok', '✓ Saved');
+                    
+                    // Keep a localStorage backup
+                    localStorage.setItem('gazette-backup', JSON.stringify(appData));
+                    
+                    // Auto-hide success message after 2 seconds
+                    setTimeout(() => {
+                        updateSyncStatus('ok', '✓ Connected');
+                    }, 2000);
                 } else {
-                    // Fallback to window.storage
-                    if (window.storage) {
-                        await window.storage.set('gazette-full-data', JSON.stringify(appData), true);
-                        console.log('Data saved to fallback storage');
-                        updateSyncStatus('ok', '✓ Synced (Local)');
-                    } else {
-                        console.warn('No storage available');
-                        updateSyncStatus('loading', '⚠ No storage');
-                    }
+                    // Fallback to localStorage
+                    localStorage.setItem('gazette-data', JSON.stringify(appData));
+                    console.log('✅ Saved to localStorage');
+                    updateSyncStatus('ok', '✓ Saved (Local)');
                 }
             } catch (error) {
-                console.error('Save error:', error);
-                updateSyncStatus('loading', '✗ Save failed: ' + error.message);
+                console.error('❌ Save error:', error);
+                updateSyncStatus('error', '✗ Save failed!');
                 
-                // Try fallback if Firebase fails
-                if (!useFallbackStorage && window.storage) {
-                    try {
-                        await window.storage.set('gazette-full-data', JSON.stringify(appData), true);
-                        console.log('Saved to fallback storage after Firebase error');
-                        updateSyncStatus('ok', '✓ Synced (Local)');
-                    } catch (fallbackError) {
-                        console.error('Fallback save also failed:', fallbackError);
-                    }
+                // Show error to user
+                alert('Failed to save to Firebase! Error: ' + error.message + '\n\nYour changes are saved locally as backup.');
+                
+                // Try to save locally as backup
+                try {
+                    localStorage.setItem('gazette-emergency-backup', JSON.stringify(appData));
+                    console.log('💾 Emergency backup saved to localStorage');
+                } catch (backupError) {
+                    console.error('❌ Even emergency backup failed:', backupError);
+                    alert('CRITICAL: Could not save backup either. Please export your data immediately!');
                 }
             }
         }
 
         async function loadData() {
             try {
+                console.log('📥 Loading data from Firebase...');
                 updateSyncStatus('loading', '⟳ Loading...');
                 
                 if (!useFallbackStorage && firebaseInitialized && db) {
@@ -868,141 +872,60 @@
                     const snapshot = await db.ref('gazetteData').once('value');
                     const loadedData = snapshot.val();
                     
+                    console.log('Firebase data:', loadedData ? 'found' : 'empty');
+                    
                     if (loadedData) {
-                        appData = { ...appData, ...loadedData };
+                        // Merge loaded data
+                        appData.issues = loadedData.issues || {};
+                        appData.meetings = loadedData.meetings || [];
+                        appData.writers = loadedData.writers || {};
+                        appData.activities = loadedData.activities || [];
+                        appData.calendarEvents = loadedData.calendarEvents || [];
+                        appData.settings = loadedData.settings || { darkMode: false };
                         
-                        // Ensure writers object exists
-                        if (!appData.writers) {
-                            appData.writers = {};
-                        }
-                        
-                        // Initialize any missing writers
-                        WRITERS.forEach(writer => {
-                            if (writer !== 'TBD' && !appData.writers[writer]) {
-                                appData.writers[writer] = { 
-                                    name: writer, 
-                                    articles: 0, 
-                                    attendance: 0, 
-                                    badges: []
-                                };
-                            }
-                        });
-                        
-                        if (appData.settings?.darkMode) {
-                            document.body.classList.add('dark');
-                        }
-                        
-                        console.log('Data loaded from Firebase successfully');
-                        updateSyncStatus('ok', '✓ Loaded from Firebase');
+                        console.log('✅ Data loaded from Firebase');
+                        console.log('Issues:', Object.keys(appData.issues).length);
+                        updateSyncStatus('ok', '✓ Connected');
                     } else {
-                        console.log('No data in Firebase, starting fresh');
+                        console.log('ℹ️ No Firebase data - starting fresh');
                         updateSyncStatus('ok', '✓ Ready (New)');
                     }
                 } else {
-                    // Fallback to window.storage
-                    if (window.storage) {
-                        const result = await window.storage.get('gazette-full-data', true);
-                        if (result?.value) {
-                            const loadedData = JSON.parse(result.value);
-                            appData = { ...appData, ...loadedData };
-                            
-                            if (appData.settings?.darkMode) {
-                                document.body.classList.add('dark');
-                            }
-                            
-                            console.log('Data loaded from fallback storage');
-                            updateSyncStatus('ok', '✓ Loaded (Local)');
-                        } else {
-                            updateSyncStatus('ok', '✓ Ready (New)');
-                        }
-                    } else {
-                        updateSyncStatus('ok', '✓ Ready (No storage)');
-                    }
+                    console.log('⚠️ Firebase not available - using fallback');
+                    updateSyncStatus('ok', '✓ Local Mode');
                 }
-            } catch (error) {
-                console.error('Load error:', error);
-                updateSyncStatus('loading', '✗ Load failed: ' + error.message);
                 
-                // Try fallback if Firebase fails
-                if (!useFallbackStorage && window.storage) {
-                    try {
-                        const result = await window.storage.get('gazette-full-data', true);
-                        if (result?.value) {
-                            const loadedData = JSON.parse(result.value);
-                            appData = { ...appData, ...loadedData };
-                            console.log('Loaded from fallback after Firebase error');
-                            updateSyncStatus('ok', '✓ Loaded (Local)');
-                        }
-                    } catch (fallbackError) {
-                        console.error('Fallback load also failed:', fallbackError);
-                        updateSyncStatus('ok', '✓ Ready (Error recovery)');
+                // Ensure writers exist
+                if (!appData.writers) appData.writers = {};
+                WRITERS.forEach(writer => {
+                    if (writer !== 'TBD' && !appData.writers[writer]) {
+                        appData.writers[writer] = { 
+                            name: writer, 
+                            articles: 0, 
+                            attendance: 0, 
+                            badges: []
+                        };
                     }
-                }
-            }
-        }
-
-        async function loadData() {
-            try {
-                updateSyncStatus('loading', '📥 Loading...');
-                const dataRef = window.dbRef(window.db, 'gazetteData');
-                const snapshot = await window.dbGet(dataRef);
+                });
                 
-                if (snapshot.exists()) {
-                    const loadedData = snapshot.val();
-                    appData = {
-                        issues: loadedData.issues || {},
-                        meetings: loadedData.meetings || [],
-                        writers: loadedData.writers || {},
-                        activities: loadedData.activities || [],
-                        calendarEvents: loadedData.calendarEvents || [],
-                        settings: loadedData.settings || { darkMode: false }
-                    };
-                    
-                    if (appData.settings?.darkMode) {
-                        document.body.classList.add('dark');
-                    }
-                    
-                    console.log('✅ Data loaded from Firebase');
-                    updateSyncStatus('ok', '✓ Connected');
-                } else {
-                    console.log('No existing data, starting fresh');
-                    updateSyncStatus('ok', '✓ Ready');
-                    // Save initial structure
-                    await saveData();
+                // Apply dark mode if set
+                if (appData.settings?.darkMode) {
+                    document.body.classList.add('dark');
                 }
+                
             } catch (error) {
                 console.error('❌ Load error:', error);
-                updateSyncStatus('error', '✗ Connection failed');
-                alert('Failed to load from Firebase: ' + error.message);
+                updateSyncStatus('error', '✗ Load failed');
+                alert('Failed to load data from Firebase. Error: ' + error.message);
             }
         }
 
         function setupRealtimeSync() {
-            const dataRef = window.dbRef(window.db, 'gazetteData');
-            window.dbOnValue(dataRef, (snapshot) => {
-                if (snapshot.exists() && !isSaving) {
-                    const serverData = snapshot.val();
-                    const serverTime = serverData.lastModified || 0;
-                    const localTime = appData.lastModified || 0;
-                    
-                    // Only update if server data is newer
-                    if (serverTime > localTime) {
-                        console.log('🔄 Syncing from server...');
-                        appData = {
-                            issues: serverData.issues || {},
-                            meetings: serverData.meetings || [],
-                            writers: serverData.writers || {},
-                            activities: serverData.activities || [],
-                            calendarEvents: serverData.calendarEvents || [],
-                            settings: serverData.settings || { darkMode: false }
-                        };
-                        
-                        // Refresh current view
-                        refreshCurrentView();
-                        renderActivityFeed();
-                    }
-                }
-            });
+            if (!firebaseInitialized || !db) {
+                console.log('⚠️ Realtime sync disabled - Firebase not available');
+                return;
+            }
+            console.log('✅ Manual save/load mode active');
         }
 
         function refreshCurrentView() {
@@ -1052,7 +975,6 @@
             }
             
             renderActivityFeed();
-            saveData();
         }
 
         function renderActivityFeed() {
@@ -1081,7 +1003,8 @@
             }).join('');
         }
 
-        // Navigation
+        // ===== NAVIGATION =====
+        
         function navigateTo(view) {
             currentView = view;
             
@@ -1093,7 +1016,8 @@
             refreshCurrentView();
         }
 
-        // Calculate completion considering BOTH writing and design
+        // ===== HELPER FUNCTIONS =====
+        
         function isArticleComplete(article) {
             return article.writingStatus === 'Complete' && article.designStatus === 'Complete';
         }
@@ -1105,7 +1029,8 @@
             return { total, complete, percent };
         }
 
-        // Dashboard
+        // ===== DASHBOARD =====
+        
         function renderDashboard() {
             const totalIssues = Object.keys(appData.issues).length;
             const totalArticles = Object.values(appData.issues).reduce((sum, issue) => 
@@ -1174,7 +1099,8 @@
             `;
         }
 
-        // Issues View
+        // ===== ISSUES VIEW =====
+        
         function renderIssuesView() {
             const workspace = document.getElementById('mainWorkspace');
             workspace.innerHTML = `
@@ -1403,7 +1329,8 @@
             }).join('');
         }
 
-        // Kanban Board
+        // ===== KANBAN BOARD =====
+        
         function renderKanbanBoard() {
             const columns = {
                 'Not started': [],
@@ -1459,7 +1386,8 @@
             `;
         }
 
-        // Calendar View
+        // ===== CALENDAR VIEW =====
+        
         function renderCalendarView() {
             const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
             const firstDay = new Date(currentYear, currentMonth, 1).getDay();
@@ -1591,7 +1519,7 @@
             customGroup.style.display = typeSelect.value === 'custom' ? 'block' : 'none';
         }
 
-        function saveCalendarEvent() {
+        async function saveCalendarEvent() {
             const typeSelect = document.getElementById('eventType');
             const customNameInput = document.getElementById('eventCustomName');
             const dateInput = document.getElementById('eventDate');
@@ -1632,14 +1560,16 @@
             });
 
             addActivity('System', `Added event: ${name}`);
+            await saveData();
             closeModal();
             renderCalendarView();
         }
 
-        function deleteCalendarEvent(eventId) {
+        async function deleteCalendarEvent(eventId) {
             if (confirm('Delete this event?')) {
                 appData.calendarEvents = appData.calendarEvents.filter(e => e.id !== eventId);
                 addActivity('System', 'Deleted calendar event');
+                await saveData();
                 renderCalendarView();
             }
         }
@@ -1692,7 +1622,8 @@
             `);
         }
 
-        // Team View
+        // ===== TEAM VIEW =====
+        
         function renderTeamView() {
             const writers = Object.values(appData.writers).filter(w => w.name !== 'TBD');
             
@@ -1764,7 +1695,8 @@
             `;
         }
 
-        // Attendance View
+        // ===== ATTENDANCE VIEW =====
+        
         function renderAttendanceView() {
             const totalMeetings = appData.meetings.length;
             const avgAttendance = totalMeetings ? 
@@ -1842,7 +1774,7 @@
             renderAttendanceGrid();
         }
 
-        function saveMeetingAttendance() {
+        async function saveMeetingAttendance() {
             const dateInput = document.getElementById('meetingDate');
             const titleInput = document.getElementById('meetingTitle');
             
@@ -1876,6 +1808,7 @@
             titleInput.value = '';
             
             addActivity('System', `Meeting recorded: ${title}`);
+            await saveData();
             renderAttendanceView();
         }
 
@@ -1933,15 +1866,17 @@
             }).join('');
         }
 
-        function deleteMeeting(index) {
+        async function deleteMeeting(index) {
             if (confirm('Delete this meeting record?')) {
                 appData.meetings.splice(index, 1);
                 addActivity('System', 'Meeting deleted');
+                await saveData();
                 renderMeetingsList();
             }
         }
 
-        // Analytics View
+        // ===== ANALYTICS VIEW =====
+        
         function renderAnalyticsView() {
             const totalArticles = Object.values(appData.issues).reduce((sum, issue) => 
                 sum + (issue.articles?.length || 0), 0
@@ -2020,7 +1955,8 @@
             `;
         }
 
-        // Archive View
+        // ===== ARCHIVE VIEW =====
+        
         function renderArchiveView() {
             const completedArticles = [];
             
@@ -2070,7 +2006,8 @@
             `;
         }
 
-        // Article Management Functions
+        // ===== ARTICLE MANAGEMENT FUNCTIONS =====
+        
         function createNewIssue() {
             showModal('Create New Issue', `
                 <div class="form-group">
@@ -2081,7 +2018,7 @@
             `);
         }
 
-        function saveNewIssue() {
+        async function saveNewIssue() {
             const nameInput = document.getElementById('newIssueName');
             const name = nameInput.value.trim();
             
@@ -2102,6 +2039,7 @@
             };
 
             addActivity('System', `Created issue: ${name}`);
+            await saveData();
             closeModal();
             
             currentView = 'issues';
@@ -2115,22 +2053,24 @@
             renderIssuesView();
         }
 
-        function deleteIssue(issueName) {
+        async function deleteIssue(issueName) {
             if (confirm(`Are you sure you want to delete "${issueName}"? This cannot be undone.`)) {
                 delete appData.issues[issueName];
                 addActivity('System', `Deleted issue: ${issueName}`);
+                await saveData();
                 renderIssueTabs();
             }
         }
 
-        function updateIssueCanvaLink(issueName, value) {
+        async function updateIssueCanvaLink(issueName, value) {
             if (appData.issues[issueName]) {
                 appData.issues[issueName].canvaLink = value;
                 addActivity('System', `Updated Canva link for ${issueName}`);
+                await saveData();
             }
         }
 
-        function addNewArticle(issueName) {
+        async function addNewArticle(issueName) {
             if (!appData.issues[issueName]) return;
             if (!appData.issues[issueName].articles) {
                 appData.issues[issueName].articles = [];
@@ -2145,20 +2085,29 @@
             });
 
             addActivity('System', `Added article to ${issueName}`);
+            await saveData();
             renderArticlesTable(issueName);
         }
 
-        function updateArticleField(issueName, articleIndex, field, value) {
+        async function updateArticleField(issueName, articleIndex, field, value) {
             if (appData.issues[issueName]?.articles[articleIndex]) {
                 appData.issues[issueName].articles[articleIndex][field] = value;
-                saveData();
+                await saveData();
+                
+                // Refresh current view to show changes
+                if (currentView === 'kanban') {
+                    renderKanbanBoard();
+                } else if (currentView === 'dashboard') {
+                    renderDashboard();
+                }
             }
         }
 
-        function deleteArticle(issueName, articleIndex) {
+        async function deleteArticle(issueName, articleIndex) {
             if (confirm('Delete this article?')) {
                 appData.issues[issueName].articles.splice(articleIndex, 1);
                 addActivity('System', `Deleted article from ${issueName}`);
+                await saveData();
                 renderIssueDetails(issueName);
             }
         }
@@ -2207,7 +2156,7 @@
             `);
         }
 
-        function saveArticleEdit(issueName, articleIndex) {
+        async function saveArticleEdit(issueName, articleIndex) {
             const article = appData.issues[issueName].articles[articleIndex];
             
             article.topic = document.getElementById('editTopic').value;
@@ -2217,6 +2166,7 @@
             article.deadline = document.getElementById('editDeadline').value;
 
             addActivity('System', `Updated article: ${article.topic || 'Untitled'}`);
+            await saveData();
             closeModal();
             
             if (currentView === 'issues') {
@@ -2226,7 +2176,7 @@
             }
         }
 
-        function addIssueNote(issueName) {
+        async function addIssueNote(issueName) {
             const noteInput = document.getElementById('newNoteInput');
             const noteText = noteInput.value.trim();
 
@@ -2246,18 +2196,20 @@
 
             noteInput.value = '';
             addActivity('System', `Added note to ${issueName}`);
+            await saveData();
             renderIssueNotes(issueName);
         }
 
-        function deleteIssueNote(issueName, noteIndex) {
+        async function deleteIssueNote(issueName, noteIndex) {
             if (confirm('Delete this note?')) {
                 appData.issues[issueName].notes.splice(noteIndex, 1);
-                saveData();
+                await saveData();
                 renderIssueNotes(issueName);
             }
         }
 
-        // Modal Functions
+        // ===== MODAL FUNCTIONS =====
+        
         function showModal(title, bodyHTML) {
             document.getElementById('modalTitle').textContent = title;
             document.getElementById('modalBody').innerHTML = bodyHTML;
@@ -2268,11 +2220,12 @@
             document.getElementById('mainModal').classList.remove('show');
         }
 
-        // Utility Functions
-        function toggleDarkMode() {
+        // ===== UTILITY FUNCTIONS =====
+        
+        async function toggleDarkMode() {
             document.body.classList.toggle('dark');
             appData.settings.darkMode = document.body.classList.contains('dark');
-            saveData();
+            await saveData();
         }
 
         function exportData() {
@@ -2287,7 +2240,8 @@
             addActivity('System', 'Data exported to JSON');
         }
 
-        // Search functionality
+        // ===== SEARCH FUNCTIONALITY =====
+        
         document.getElementById('searchBox').addEventListener('input', (e) => {
             searchQuery = e.target.value.toLowerCase();
             
@@ -2299,14 +2253,16 @@
             }
         });
 
-        // Close modal when clicking outside
+        // ===== MODAL CLOSE ON OUTSIDE CLICK =====
+        
         document.getElementById('mainModal').addEventListener('click', (e) => {
             if (e.target.id === 'mainModal') {
                 closeModal();
             }
         });
 
-        // Initialize application
+        // ===== INITIALIZE APPLICATION =====
+        
         window.initializeApp = async function() {
             console.log('🚀 Initializing TPHS Gazette Tracker...');
             
@@ -2317,6 +2273,9 @@
             
             console.log('✅ Initialization complete!');
         };
+
+        // Auto-initialize when page loads
+        window.addEventListener('DOMContentLoaded', initializeApp);
     </script>
 </body>
 </html>
