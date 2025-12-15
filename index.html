@@ -111,6 +111,7 @@
         }
         .sync.ok { background: rgba(46, 204, 113, 0.3); color: white; border: 2px solid rgba(46, 204, 113, 0.5); }
         .sync.loading { background: rgba(220, 20, 60, 0.3); color: white; border: 2px solid rgba(220, 20, 60, 0.5); }
+        .sync.error { background: rgba(231, 76, 60, 0.3); color: white; border: 2px solid rgba(231, 76, 60, 0.5); }
 
         .layout {
             display: grid;
@@ -684,8 +685,8 @@
                 <div class="header-left">
                     <h1>📰 TPHS Gazette Tracker</h1>
                     <p class="subtitle">
-                        Professional team management system
-                        <span id="syncStatus" class="sync loading">⟳ Loading...</span>
+                        Firebase-powered team management
+                        <span id="syncStatus" class="sync loading">🔥 Connecting...</span>
                     </p>
                 </div>
                 <div class="header-tools">
@@ -745,7 +746,44 @@
         </div>
     </div>
 
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+    
     <script>
+        // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+        const firebaseConfig = {
+        apiKey: "AIzaSyCxPRVjOB8R0fiWbXfVY4DHVHpPqw4UflI",
+        authDomain: "school-gazette-tracker-6d964.firebaseapp.com",
+        databaseURL: "https://school-gazette-tracker-6d964-default-rtdb.asia-southeast1.firebasedatabase.app",
+        projectId: "school-gazette-tracker-6d964",
+        storageBucket: "school-gazette-tracker-6d964.firebasestorage.app",
+        messagingSenderId: "1083411844838",
+        appId: "1:1083411844838:web:f2e8fe06fedd4984793527",
+        measurementId: "G-D7RSL7LNFQ"
+        };
+
+        // Check for stored Firebase config
+        const storedConfig = localStorage.getItem('firebaseConfig');
+        const configToUse = storedConfig ? JSON.parse(storedConfig) : firebaseConfig;
+
+        // Initialize Firebase
+        let db = null;
+        let firebaseInitialized = false;
+        let useFallbackStorage = false;
+
+        try {
+            firebase.initializeApp(configToUse);
+            db = firebase.database();
+            firebaseInitialized = true;
+            console.log('Firebase initialized successfully');
+            console.log('Using database:', configToUse.databaseURL);
+        } catch (error) {
+            console.error('Firebase initialization failed:', error);
+            console.log('Using fallback storage (window.storage or localStorage)');
+            useFallbackStorage = true;
+        }
+
         const WRITERS = ['TBD','Aarna','Amrutha','Arshdeep','Ashlyn','Avantika','Teshna','Anvi','Eunice','Heidi','Roksana','Sri','Zoeya','Viya','Ameera','Ameerah','Eira','Rakshita','Suha'];
         const STATUSES = ['Not started','In progress','Review','Complete'];
         const EVENT_TYPES = [
@@ -783,35 +821,216 @@
             }
         });
 
-        // Data persistence functions
+        // Data persistence functions with Firebase
         async function saveData() {
             try {
-                await window.storage.set('gazette-full-data', JSON.stringify(appData), true);
-                updateSyncStatus('ok', '✓ Synced');
-                console.log('Data saved successfully');
+                updateSyncStatus('loading', '⟳ Saving...');
+                
+                if (!useFallbackStorage && firebaseInitialized && db) {
+                    // Save to Firebase
+                    await db.ref('gazetteData').set(appData);
+                    console.log('Data saved to Firebase successfully');
+                    updateSyncStatus('ok', '✓ Synced to Firebase');
+                } else {
+                    // Fallback to window.storage
+                    if (window.storage) {
+                        await window.storage.set('gazette-full-data', JSON.stringify(appData), true);
+                        console.log('Data saved to fallback storage');
+                        updateSyncStatus('ok', '✓ Synced (Local)');
+                    } else {
+                        console.warn('No storage available');
+                        updateSyncStatus('loading', '⚠ No storage');
+                    }
+                }
             } catch (error) {
                 console.error('Save error:', error);
-                updateSyncStatus('loading', '✗ Save failed');
+                updateSyncStatus('loading', '✗ Save failed: ' + error.message);
+                
+                // Try fallback if Firebase fails
+                if (!useFallbackStorage && window.storage) {
+                    try {
+                        await window.storage.set('gazette-full-data', JSON.stringify(appData), true);
+                        console.log('Saved to fallback storage after Firebase error');
+                        updateSyncStatus('ok', '✓ Synced (Local)');
+                    } catch (fallbackError) {
+                        console.error('Fallback save also failed:', fallbackError);
+                    }
+                }
             }
         }
 
         async function loadData() {
             try {
-                const result = await window.storage.get('gazette-full-data', true);
-                if (result?.value) {
-                    const loadedData = JSON.parse(result.value);
-                    appData = { ...appData, ...loadedData };
+                updateSyncStatus('loading', '⟳ Loading...');
+                
+                if (!useFallbackStorage && firebaseInitialized && db) {
+                    // Load from Firebase
+                    const snapshot = await db.ref('gazetteData').once('value');
+                    const loadedData = snapshot.val();
+                    
+                    if (loadedData) {
+                        appData = { ...appData, ...loadedData };
+                        
+                        // Ensure writers object exists
+                        if (!appData.writers) {
+                            appData.writers = {};
+                        }
+                        
+                        // Initialize any missing writers
+                        WRITERS.forEach(writer => {
+                            if (writer !== 'TBD' && !appData.writers[writer]) {
+                                appData.writers[writer] = { 
+                                    name: writer, 
+                                    articles: 0, 
+                                    attendance: 0, 
+                                    badges: []
+                                };
+                            }
+                        });
+                        
+                        if (appData.settings?.darkMode) {
+                            document.body.classList.add('dark');
+                        }
+                        
+                        console.log('Data loaded from Firebase successfully');
+                        updateSyncStatus('ok', '✓ Loaded from Firebase');
+                    } else {
+                        console.log('No data in Firebase, starting fresh');
+                        updateSyncStatus('ok', '✓ Ready (New)');
+                    }
+                } else {
+                    // Fallback to window.storage
+                    if (window.storage) {
+                        const result = await window.storage.get('gazette-full-data', true);
+                        if (result?.value) {
+                            const loadedData = JSON.parse(result.value);
+                            appData = { ...appData, ...loadedData };
+                            
+                            if (appData.settings?.darkMode) {
+                                document.body.classList.add('dark');
+                            }
+                            
+                            console.log('Data loaded from fallback storage');
+                            updateSyncStatus('ok', '✓ Loaded (Local)');
+                        } else {
+                            updateSyncStatus('ok', '✓ Ready (New)');
+                        }
+                    } else {
+                        updateSyncStatus('ok', '✓ Ready (No storage)');
+                    }
+                }
+            } catch (error) {
+                console.error('Load error:', error);
+                updateSyncStatus('loading', '✗ Load failed: ' + error.message);
+                
+                // Try fallback if Firebase fails
+                if (!useFallbackStorage && window.storage) {
+                    try {
+                        const result = await window.storage.get('gazette-full-data', true);
+                        if (result?.value) {
+                            const loadedData = JSON.parse(result.value);
+                            appData = { ...appData, ...loadedData };
+                            console.log('Loaded from fallback after Firebase error');
+                            updateSyncStatus('ok', '✓ Loaded (Local)');
+                        }
+                    } catch (fallbackError) {
+                        console.error('Fallback load also failed:', fallbackError);
+                        updateSyncStatus('ok', '✓ Ready (Error recovery)');
+                    }
+                }
+            }
+        }
+
+        async function loadData() {
+            try {
+                updateSyncStatus('loading', '📥 Loading...');
+                const dataRef = window.dbRef(window.db, 'gazetteData');
+                const snapshot = await window.dbGet(dataRef);
+                
+                if (snapshot.exists()) {
+                    const loadedData = snapshot.val();
+                    appData = {
+                        issues: loadedData.issues || {},
+                        meetings: loadedData.meetings || [],
+                        writers: loadedData.writers || {},
+                        activities: loadedData.activities || [],
+                        calendarEvents: loadedData.calendarEvents || [],
+                        settings: loadedData.settings || { darkMode: false }
+                    };
                     
                     if (appData.settings?.darkMode) {
                         document.body.classList.add('dark');
                     }
                     
-                    console.log('Data loaded successfully');
+                    console.log('✅ Data loaded from Firebase');
+                    updateSyncStatus('ok', '✓ Connected');
+                } else {
+                    console.log('No existing data, starting fresh');
+                    updateSyncStatus('ok', '✓ Ready');
+                    // Save initial structure
+                    await saveData();
                 }
-                updateSyncStatus('ok', '✓ Synced');
             } catch (error) {
-                console.log('No existing data, starting fresh');
-                updateSyncStatus('ok', '✓ Ready');
+                console.error('❌ Load error:', error);
+                updateSyncStatus('error', '✗ Connection failed');
+                alert('Failed to load from Firebase: ' + error.message);
+            }
+        }
+
+        function setupRealtimeSync() {
+            const dataRef = window.dbRef(window.db, 'gazetteData');
+            window.dbOnValue(dataRef, (snapshot) => {
+                if (snapshot.exists() && !isSaving) {
+                    const serverData = snapshot.val();
+                    const serverTime = serverData.lastModified || 0;
+                    const localTime = appData.lastModified || 0;
+                    
+                    // Only update if server data is newer
+                    if (serverTime > localTime) {
+                        console.log('🔄 Syncing from server...');
+                        appData = {
+                            issues: serverData.issues || {},
+                            meetings: serverData.meetings || [],
+                            writers: serverData.writers || {},
+                            activities: serverData.activities || [],
+                            calendarEvents: serverData.calendarEvents || [],
+                            settings: serverData.settings || { darkMode: false }
+                        };
+                        
+                        // Refresh current view
+                        refreshCurrentView();
+                        renderActivityFeed();
+                    }
+                }
+            });
+        }
+
+        function refreshCurrentView() {
+            switch(currentView) {
+                case 'dashboard':
+                    renderDashboard();
+                    break;
+                case 'issues':
+                    renderIssuesView();
+                    break;
+                case 'kanban':
+                    renderKanbanBoard();
+                    break;
+                case 'calendar':
+                    renderCalendarView();
+                    break;
+                case 'team':
+                    renderTeamView();
+                    break;
+                case 'attendance':
+                    renderAttendanceView();
+                    break;
+                case 'analytics':
+                    renderAnalyticsView();
+                    break;
+                case 'archive':
+                    renderArchiveView();
+                    break;
             }
         }
 
@@ -833,6 +1052,7 @@
             }
             
             renderActivityFeed();
+            saveData();
         }
 
         function renderActivityFeed() {
@@ -870,32 +1090,7 @@
             });
             event.currentTarget.classList.add('active');
             
-            switch(view) {
-                case 'dashboard':
-                    renderDashboard();
-                    break;
-                case 'issues':
-                    renderIssuesView();
-                    break;
-                case 'kanban':
-                    renderKanbanBoard();
-                    break;
-                case 'calendar':
-                    renderCalendarView();
-                    break;
-                case 'team':
-                    renderTeamView();
-                    break;
-                case 'attendance':
-                    renderAttendanceView();
-                    break;
-                case 'analytics':
-                    renderAnalyticsView();
-                    break;
-                case 'archive':
-                    renderArchiveView();
-                    break;
-            }
+            refreshCurrentView();
         }
 
         // Calculate completion considering BOTH writing and design
@@ -1436,7 +1631,6 @@
                 timestamp: Date.now()
             });
 
-            saveData();
             addActivity('System', `Added event: ${name}`);
             closeModal();
             renderCalendarView();
@@ -1445,7 +1639,6 @@
         function deleteCalendarEvent(eventId) {
             if (confirm('Delete this event?')) {
                 appData.calendarEvents = appData.calendarEvents.filter(e => e.id !== eventId);
-                saveData();
                 addActivity('System', 'Deleted calendar event');
                 renderCalendarView();
             }
@@ -1682,7 +1875,6 @@
             selectedAttendees.clear();
             titleInput.value = '';
             
-            saveData();
             addActivity('System', `Meeting recorded: ${title}`);
             renderAttendanceView();
         }
@@ -1744,7 +1936,6 @@
         function deleteMeeting(index) {
             if (confirm('Delete this meeting record?')) {
                 appData.meetings.splice(index, 1);
-                saveData();
                 addActivity('System', 'Meeting deleted');
                 renderMeetingsList();
             }
@@ -1910,7 +2101,6 @@
                 notes: []
             };
 
-            saveData();
             addActivity('System', `Created issue: ${name}`);
             closeModal();
             
@@ -1928,7 +2118,6 @@
         function deleteIssue(issueName) {
             if (confirm(`Are you sure you want to delete "${issueName}"? This cannot be undone.`)) {
                 delete appData.issues[issueName];
-                saveData();
                 addActivity('System', `Deleted issue: ${issueName}`);
                 renderIssueTabs();
             }
@@ -1937,7 +2126,6 @@
         function updateIssueCanvaLink(issueName, value) {
             if (appData.issues[issueName]) {
                 appData.issues[issueName].canvaLink = value;
-                saveData();
                 addActivity('System', `Updated Canva link for ${issueName}`);
             }
         }
@@ -1956,7 +2144,6 @@
                 deadline: ''
             });
 
-            saveData();
             addActivity('System', `Added article to ${issueName}`);
             renderArticlesTable(issueName);
         }
@@ -1971,7 +2158,6 @@
         function deleteArticle(issueName, articleIndex) {
             if (confirm('Delete this article?')) {
                 appData.issues[issueName].articles.splice(articleIndex, 1);
-                saveData();
                 addActivity('System', `Deleted article from ${issueName}`);
                 renderIssueDetails(issueName);
             }
@@ -2030,7 +2216,6 @@
             article.designStatus = document.getElementById('editDesignStatus').value;
             article.deadline = document.getElementById('editDeadline').value;
 
-            saveData();
             addActivity('System', `Updated article: ${article.topic || 'Untitled'}`);
             closeModal();
             
@@ -2060,7 +2245,6 @@
             });
 
             noteInput.value = '';
-            saveData();
             addActivity('System', `Added note to ${issueName}`);
             renderIssueNotes(issueName);
         }
@@ -2123,55 +2307,16 @@
         });
 
         // Initialize application
-        async function initializeApp() {
-            console.log('Initializing TPHS Gazette Tracker...');
+        window.initializeApp = async function() {
+            console.log('🚀 Initializing TPHS Gazette Tracker...');
             
             await loadData();
             renderDashboard();
             renderActivityFeed();
+            setupRealtimeSync();
             
-            // Auto-sync every 10 seconds
-            setInterval(async () => {
-                const oldData = JSON.stringify(appData);
-                await loadData();
-                const newData = JSON.stringify(appData);
-                
-                if (oldData !== newData) {
-                    console.log('Data synced from server');
-                    
-                    switch(currentView) {
-                        case 'dashboard':
-                            renderDashboard();
-                            break;
-                        case 'issues':
-                            renderIssuesView();
-                            break;
-                        case 'kanban':
-                            renderKanbanBoard();
-                            break;
-                        case 'calendar':
-                            renderCalendarView();
-                            break;
-                        case 'team':
-                            renderTeamView();
-                            break;
-                        case 'attendance':
-                            renderAttendanceView();
-                            break;
-                        case 'analytics':
-                            renderAnalyticsView();
-                            break;
-                        case 'archive':
-                            renderArchiveView();
-                            break;
-                    }
-                }
-            }, 10000);
-            
-            console.log('Initialization complete!');
-        }
-
-        initializeApp();
+            console.log('✅ Initialization complete!');
+        };
     </script>
 </body>
 </html>
