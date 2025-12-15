@@ -779,7 +779,10 @@
         }
 
         // Constants
-        const WRITERS = ['TBD','Aarna','Amrutha','Arshdeep','Ashlyn','Avantika','Teshna','Anvi','Eunice','Heidi','Roksana','Sri','Zoeya','Viya','Ameera','Ameerah','Eira','Rakshita','Suha'];
+        const WRITERS = ['TBD','Aarna','Amrutha','Arshdeep','Avantika','Teshna','Eunice','Heidi','Roksana','Sri','Zoeya','Viya','Ameera','Ameerah','Eira','Rakshita','Suha'];
+        const DESIGNERS = ['TBD','Aarna','Amrutha','Arshdeep','Avantika','Teshna','Eunice','Heidi','Roksana','Sri','Zoeya','Viya','Ameera','Ameerah','Eira','Rakshita','Suha'];
+        const ALL_MEMBERS = ['Aarna','Amrutha','Arshdeep','Ashlyn','Avantika','Teshna','Anvi','Eunice','Heidi','Roksana','Sri','Zoeya','Viya','Ameera','Ameerah','Eira','Rakshita','Suha'];
+        const TEAM_DISPLAY = ['Aarna','Amrutha','Arshdeep','Avantika','Teshna','Eunice','Heidi','Roksana','Sri','Zoeya','Viya','Ameera','Ameerah','Eira','Rakshita','Suha'];
         const STATUSES = ['Not started','In progress','Review','Complete'];
         const EVENT_TYPES = [
             { value: 'meeting', label: 'Meeting', color: 'event-meeting' },
@@ -806,11 +809,12 @@
         let currentYear = new Date().getFullYear();
 
         // Initialize writers
-        WRITERS.forEach(writer => {
-            if (writer !== 'TBD' && !appData.writers[writer]) {
-                appData.writers[writer] = { 
-                    name: writer, 
-                    articles: 0, 
+        ALL_MEMBERS.forEach(member => {
+            if (!appData.writers[member]) {
+                appData.writers[member] = { 
+                    name: member, 
+                    articles: 0,
+                    designs: 0,
                     attendance: 0, 
                     badges: []
                 };
@@ -897,11 +901,12 @@
                 
                 // Ensure writers exist
                 if (!appData.writers) appData.writers = {};
-                WRITERS.forEach(writer => {
-                    if (writer !== 'TBD' && !appData.writers[writer]) {
-                        appData.writers[writer] = { 
-                            name: writer, 
-                            articles: 0, 
+                ALL_MEMBERS.forEach(member => {
+                    if (!appData.writers[member]) {
+                        appData.writers[member] = { 
+                            name: member, 
+                            articles: 0,
+                            designs: 0,
                             attendance: 0, 
                             badges: []
                         };
@@ -1041,10 +1046,22 @@
             );
             const progressPercent = totalArticles ? Math.round((completedArticles / totalArticles) * 100) : 0;
 
+            // Get current issue (most recent)
+            const issueNames = Object.keys(appData.issues);
+            const currentIssue = issueNames.length > 0 ? issueNames[issueNames.length - 1] : 'No active issue';
+
             const workspace = document.getElementById('mainWorkspace');
             workspace.innerHTML = `
                 <div class="section-header">
                     <h2>Dashboard Overview</h2>
+                </div>
+
+                <div class="profile-card" style="background: linear-gradient(135deg, #DC143C 0%, #8B0000 100%); color: white; padding: 30px; margin-bottom: 25px;">
+                    <h3 style="font-size: 1.8em; margin-bottom: 15px; color: white;">📰 Current Issue: ${currentIssue}</h3>
+                    <div style="font-size: 1.1em; opacity: 0.95; line-height: 1.8;">
+                        <strong>Editor in Chief:</strong> Anvi<br>
+                        <strong>Co-Editors:</strong> Ashlyn and Avantika
+                    </div>
                 </div>
                 
                 <div class="stats-grid">
@@ -1190,6 +1207,7 @@
                             <tr>
                                 <th>Topic</th>
                                 <th>Writer</th>
+                                <th>Designer</th>
                                 <th>Writing Status</th>
                                 <th>Design Status</th>
                                 <th>Deadline</th>
@@ -1228,7 +1246,7 @@
             const tbody = document.getElementById('articlesTableBody');
             
             if (!tbody || !issue.articles || issue.articles.length === 0) {
-                if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px;color:#7f8c8d;">No articles yet. Add one above!</td></tr>';
+                if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:#7f8c8d;">No articles yet. Add one above!</td></tr>';
                 return;
             }
 
@@ -1236,11 +1254,12 @@
                 if (!searchQuery) return true;
                 const query = searchQuery.toLowerCase();
                 return (article.topic?.toLowerCase().includes(query) || 
-                        article.writer?.toLowerCase().includes(query));
+                        article.writer?.toLowerCase().includes(query) ||
+                        article.designer?.toLowerCase().includes(query));
             });
 
             if (filteredArticles.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px;color:#7f8c8d;">No articles match your search</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:#7f8c8d;">No articles match your search</td></tr>';
                 return;
             }
 
@@ -1258,6 +1277,14 @@
                                 <option value="">Select writer...</option>
                                 ${WRITERS.map(writer => 
                                     `<option value="${writer}" ${article.writer === writer ? 'selected' : ''}>${writer}</option>`
+                                ).join('')}
+                            </select>
+                        </td>
+                        <td>
+                            <select onchange="updateArticleField('${issueName}', ${actualIndex}, 'designer', this.value)">
+                                <option value="">Select designer...</option>
+                                ${DESIGNERS.map(designer => 
+                                    `<option value="${designer}" ${article.designer === designer ? 'selected' : ''}>${designer}</option>`
                                 ).join('')}
                             </select>
                         </td>
@@ -1373,6 +1400,7 @@
                                         <h4>${article.topic || 'Untitled Article'}</h4>
                                         <div class="meta">
                                             <div><strong>Writer:</strong> ${article.writer || 'Unassigned'}</div>
+                                            <div><strong>Designer:</strong> ${article.designer || 'Unassigned'}</div>
                                             <div><strong>Issue:</strong> ${article.issueName}</div>
                                             <div><strong>Design:</strong> ${article.designStatus || 'Not started'}</div>
                                             ${article.deadline ? `<div style="color:#e74c3c;"><strong>Due:</strong> ${new Date(article.deadline).toLocaleDateString()}</div>` : ''}
@@ -1625,25 +1653,40 @@
         // ===== TEAM VIEW =====
         
         function renderTeamView() {
-            const writers = Object.values(appData.writers).filter(w => w.name !== 'TBD');
+            const writers = Object.values(appData.writers).filter(w => TEAM_DISPLAY.includes(w.name));
             
             writers.forEach(writer => {
                 writer.currentArticles = 0;
                 writer.currentCompleted = 0;
+                writer.currentDesigns = 0;
+                writer.currentDesignsCompleted = 0;
                 
                 Object.values(appData.issues).forEach(issue => {
                     issue.articles?.forEach(article => {
+                        // Count writing
                         if (article.writer === writer.name) {
                             writer.currentArticles++;
-                            if (isArticleComplete(article)) {
+                            if (article.writingStatus === 'Complete') {
                                 writer.currentCompleted++;
+                            }
+                        }
+                        // Count designs
+                        if (article.designer === writer.name) {
+                            writer.currentDesigns++;
+                            if (article.designStatus === 'Complete') {
+                                writer.currentDesignsCompleted++;
                             }
                         }
                     });
                 });
             });
 
-            writers.sort((a, b) => b.currentCompleted - a.currentCompleted);
+            // Sort by total completed work (articles + designs)
+            writers.sort((a, b) => {
+                const totalA = a.currentCompleted + a.currentDesignsCompleted;
+                const totalB = b.currentCompleted + b.currentDesignsCompleted;
+                return totalB - totalA;
+            });
 
             const workspace = document.getElementById('mainWorkspace');
             workspace.innerHTML = `
@@ -1652,13 +1695,14 @@
                 </div>
                 
                 ${writers.map((writer, index) => {
-                    const completionRate = writer.currentArticles ? 
-                        Math.round((writer.currentCompleted / writer.currentArticles) * 100) : 0;
+                    const totalWork = writer.currentArticles + writer.currentDesigns;
+                    const totalCompleted = writer.currentCompleted + writer.currentDesignsCompleted;
+                    const completionRate = totalWork ? Math.round((totalCompleted / totalWork) * 100) : 0;
                     
                     let badge = '';
-                    if (index === 0 && writer.currentCompleted > 0) badge = 'gold';
-                    else if (index === 1 && writer.currentCompleted > 0) badge = 'silver';
-                    else if (index === 2 && writer.currentCompleted > 0) badge = 'bronze';
+                    if (index === 0 && totalCompleted > 0) badge = 'gold';
+                    else if (index === 1 && totalCompleted > 0) badge = 'silver';
+                    else if (index === 2 && totalCompleted > 0) badge = 'bronze';
                     
                     return `
                         <div class="profile-card">
@@ -1668,22 +1712,30 @@
                                     ${badge ? `<span class="badge badge-${badge}">🏆 ${badge.toUpperCase()}</span>` : ''}
                                 </h3>
                             </div>
-                            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:15px;margin:15px 0;">
+                            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px;margin:15px 0;">
                                 <div style="text-align:center;">
-                                    <div style="font-size:1.8em;font-weight:700;color:#DC143C;">${writer.currentArticles}</div>
-                                    <div style="font-size:0.85em;color:#7f8c8d;">Articles</div>
+                                    <div style="font-size:1.6em;font-weight:700;color:#DC143C;">${writer.currentArticles}</div>
+                                    <div style="font-size:0.8em;color:#7f8c8d;">Articles</div>
                                 </div>
                                 <div style="text-align:center;">
-                                    <div style="font-size:1.8em;font-weight:700;color:#2ecc71;">${writer.currentCompleted}</div>
-                                    <div style="font-size:0.85em;color:#7f8c8d;">Completed</div>
+                                    <div style="font-size:1.6em;font-weight:700;color:#2ecc71;">${writer.currentCompleted}</div>
+                                    <div style="font-size:0.8em;color:#7f8c8d;">Written ✓</div>
                                 </div>
                                 <div style="text-align:center;">
-                                    <div style="font-size:1.8em;font-weight:700;color:#1a1a1a;">${completionRate}%</div>
-                                    <div style="font-size:0.85em;color:#7f8c8d;">Rate</div>
+                                    <div style="font-size:1.6em;font-weight:700;color:#8B0000;">${writer.currentDesigns}</div>
+                                    <div style="font-size:0.8em;color:#7f8c8d;">Designs</div>
                                 </div>
                                 <div style="text-align:center;">
-                                    <div style="font-size:1.8em;font-weight:700;color:#8B0000;">${writer.attendance || 0}</div>
-                                    <div style="font-size:0.85em;color:#7f8c8d;">Meetings</div>
+                                    <div style="font-size:1.6em;font-weight:700;color:#2ecc71;">${writer.currentDesignsCompleted}</div>
+                                    <div style="font-size:0.8em;color:#7f8c8d;">Designed ✓</div>
+                                </div>
+                                <div style="text-align:center;">
+                                    <div style="font-size:1.6em;font-weight:700;color:#667eea;">${writer.attendance || 0}</div>
+                                    <div style="font-size:0.8em;color:#7f8c8d;">Meetings</div>
+                                </div>
+                                <div style="text-align:center;">
+                                    <div style="font-size:1.6em;font-weight:700;color:#1a1a1a;">${completionRate}%</div>
+                                    <div style="font-size:0.8em;color:#7f8c8d;">Complete</div>
                                 </div>
                             </div>
                             <div class="progress">
@@ -1752,14 +1804,14 @@
             const gridElement = document.getElementById('attendanceGrid');
             if (!gridElement) return;
 
-            gridElement.innerHTML = WRITERS.filter(w => w !== 'TBD').map(writer => {
-                const isSelected = selectedAttendees.has(writer);
+            gridElement.innerHTML = ALL_MEMBERS.map(member => {
+                const isSelected = selectedAttendees.has(member);
                 return `
                     <label class="attendance-checkbox ${isSelected ? 'checked' : ''}">
                         <input type="checkbox" 
                             ${isSelected ? 'checked' : ''} 
-                            onchange="toggleAttendee('${writer}')">
-                        <span>${writer}</span>
+                            onchange="toggleAttendee('${member}')">
+                        <span>${member}</span>
                     </label>
                 `;
             }).join('');
@@ -1987,6 +2039,7 @@
                             <tr>
                                 <th>Topic</th>
                                 <th>Writer</th>
+                                <th>Designer</th>
                                 <th>Issue</th>
                                 <th>Completed Date</th>
                             </tr>
@@ -1996,6 +2049,7 @@
                                 <tr>
                                     <td>${article.topic || 'Untitled'}</td>
                                     <td>${article.writer || 'Unknown'}</td>
+                                    <td>${article.designer || 'Unknown'}</td>
                                     <td>${article.issueName}</td>
                                     <td>${article.deadline ? new Date(article.deadline).toLocaleDateString() : '-'}</td>
                                 </tr>
@@ -2079,6 +2133,7 @@
             appData.issues[issueName].articles.push({
                 topic: '',
                 writer: '',
+                designer: '',
                 writingStatus: 'Not started',
                 designStatus: 'Not started',
                 deadline: ''
@@ -2131,6 +2186,15 @@
                     </select>
                 </div>
                 <div class="form-group">
+                    <label>Designer</label>
+                    <select id="editDesigner">
+                        <option value="">Select designer...</option>
+                        ${DESIGNERS.map(d => 
+                            `<option value="${d}" ${article.designer === d ? 'selected' : ''}>${d}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+                <div class="form-group">
                     <label>Writing Status</label>
                     <select id="editWritingStatus">
                         ${STATUSES.map(s => 
@@ -2161,6 +2225,7 @@
             
             article.topic = document.getElementById('editTopic').value;
             article.writer = document.getElementById('editWriter').value;
+            article.designer = document.getElementById('editDesigner').value;
             article.writingStatus = document.getElementById('editWritingStatus').value;
             article.designStatus = document.getElementById('editDesignStatus').value;
             article.deadline = document.getElementById('editDeadline').value;
